@@ -359,7 +359,6 @@
         return "";
       }
     });
-    const [modelInfo, setModelInfo] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
