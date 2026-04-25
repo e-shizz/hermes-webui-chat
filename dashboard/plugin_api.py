@@ -172,6 +172,17 @@ async def models_endpoint():
     if not models and current_model:
         models = [current_model]
 
+    # Provider-specific hardcoded fallbacks when live probe fails
+    # (these providers don't expose /v1/models)
+    if source != "live" and provider == "opencode-go" and not models:
+        models = [
+            "kimi-k2.6",
+            "kimi-k2.6-thinking",
+            "deepseek-v4-pro",
+            "minimax-m2.7",
+        ]
+        source = "provider_fallback"
+
     return {
         "models": models,
         "source": source,

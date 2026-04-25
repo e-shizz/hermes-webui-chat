@@ -839,11 +839,11 @@
       React.createElement(
         "div",
         { className: "flex flex-col flex-1 min-w-0 h-full relative" },
-        /* Floating toggle when sidebar collapsed */
+        /* Floating toggle + model selector when sidebar collapsed */
         !sidebarOpen &&
           React.createElement(
             "div",
-            { className: "absolute top-2 left-2 z-10" },
+            { className: "absolute top-2 left-2 z-10 flex items-center gap-2" },
             React.createElement(
               Button,
               {
@@ -859,6 +859,18 @@
                 React.createElement("line", { x1: 3, y1: 12, x2: 21, y2: 12 }),
                 React.createElement("line", { x1: 3, y1: 6, x2: 21, y2: 6 }),
                 React.createElement("line", { x1: 3, y1: 18, x2: 21, y2: 18 })
+              )
+            ),
+            React.createElement(
+              "select",
+              {
+                value: selectedModel,
+                onChange: (e) => setSelectedModel(e.target.value),
+                className: "h-7 px-2 text-[11px] bg-background/80 backdrop-blur-sm border border-border/50 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer normal-case tracking-normal shadow-sm",
+                title: "Select model",
+              },
+              availableModels.map((m) =>
+                React.createElement("option", { key: m, value: m, className: "bg-background text-foreground" }, m)
               )
             )
           ),
