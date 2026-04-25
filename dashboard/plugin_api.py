@@ -169,13 +169,9 @@ async def models_endpoint():
         except Exception:
             pass
 
-    # Fallback: only the configured model (never a stale static catalog)
-    if not models and current_model:
-        models = [current_model]
-
     # Provider-specific hardcoded fallbacks when live probe fails
     # (these providers don't expose /v1/models)
-    if source != "live" and provider == "opencode-go" and not models:
+    if source != "live" and provider == "opencode-go":
         models = [
             "kimi-k2.6",
             "kimi-k2.6-thinking",
@@ -183,6 +179,10 @@ async def models_endpoint():
             "minimax-m2.7",
         ]
         source = "provider_fallback"
+
+    # Fallback: only the configured model (never a stale static catalog)
+    if not models and current_model:
+        models = [current_model]
 
     return {
         "models": models,
