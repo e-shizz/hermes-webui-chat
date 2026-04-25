@@ -70,20 +70,15 @@ Without the flex fix, the plugin still *functions* but the chat area won't fill 
 
 ---
 
-## 🌐 Firefox ML Integration (Future/Bonus)
+## 🔧 Firefox Sidebar Integration (Bonus)
 
-Because the frontend is a standard web app using `fetch()` and `EventSource`, it can be adapted to talk to Firefox's local AI runtime instead of the Hermes backend:
+This plugin can be wired into [Firefox's sidebar API](https://docs.openwebui.com/tutorials/integrations/dev-tools/firefox-sidebar) so the chat UI lives as a persistent panel alongside your browsing session — no tab switching, no context loss.
 
-```javascript
-// Concept: swap the SSE endpoint for Firefox ML's local port
-const eventSource = new EventSource('http://localhost:8080/v1/chat/completions');
-```
+Because the frontend is a standard web app using `fetch()` and `EventSource`, the same chat UI works both:
+- **Inside the Hermes dashboard** (current — mounted as a plugin tab)
+- **Inside Firefox sidebar** (future — load the plugin route in Firefox's sidebar panel for always-available chat while browsing)
 
-This makes the same chat UI work for:
-- **Cloud inference** (current — Hermes backend)
-- **Local on-device inference** (future — Firefox ML, llamafile, etc.)
-
-The plugin architecture is intentionally provider-agnostic.
+The architecture is intentionally portable: swap the base URL and the same bundle runs anywhere.
 
 ---
 
