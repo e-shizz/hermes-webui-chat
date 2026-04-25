@@ -33,15 +33,26 @@ if _HERMES_ROOT and str(_HERMES_ROOT) not in sys.path:
 
 
 def _extract_images_from_messages(messages):
-    """Scan conversation messages for image_generate_tool results and return image URLs.
+    """Scan conversation messages for image_generate_tool results from the CURRENT turn only.
 
     Tool results are stored as role='tool' messages with JSON content.
-    The image_generate_tool returns: {"success": true, "image": "https://..."}
+    Only scans messages after the last user message to avoid carrying
+    historical images into every new response.
     """
     images = []
     if not messages:
         return images
-    for msg in messages:
+
+    # Find the last user message index — only scan tool results after it
+    last_user_idx = -1
+    for i, msg in enumerate(messages):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            last_user_idx = i
+
+    # Scan only messages after the last user message (current turn)
+    current_turn = messages[last_user_idx + 1:] if last_user_idx >= 0 else messages
+
+    for msg in current_turn:
         if not isinstance(msg, dict):
             continue
         if msg.get("role") != "tool":
