@@ -528,37 +528,19 @@
     return React.createElement(
       "div",
       {
-        className: "flex flex-col w-full overflow-hidden relative normal-case",
+        className: "flex flex-row w-full overflow-hidden normal-case",
         style: { minHeight: "calc(100dvh - 100px)" },
       },
 
-      /* Mobile toggle */
-      React.createElement(MobileToggle, {
-        sidebarOpen,
-        onToggle: () => setSidebarOpen((v) => !v),
-      }),
-
-      /* Sidebar */
+      /* Sidebar — always visible, solid, part of layout */
       React.createElement(
         "div",
         {
-          className: cn(
-            "flex flex-col bg-background border-r border-border",
-            "absolute z-40 w-72 shadow-xl",
-            "transition-transform duration-200 ease-in-out",
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          ),
+          className: "flex flex-col w-72 flex-shrink-0 bg-background border-r border-border",
           style: { height: "calc(100dvh - 100px)" },
         },
         renderSidebarContent()
       ),
-
-      /* Overlay for mobile sidebar */
-      sidebarOpen &&
-        React.createElement("div", {
-          className: "md:hidden fixed inset-0 bg-black/30 z-30",
-          onClick: () => setSidebarOpen(false),
-        }),
 
       /* Main chat area */
       React.createElement(
