@@ -33,7 +33,11 @@ if _HERMES_ROOT and str(_HERMES_ROOT) not in sys.path:
 
 
 def _load_agent_config():
-    """Load user config + .env exactly like the CLI does."""
+    """Load user config + .env exactly like the CLI does.
+
+    Provider-aware API key selection: picks the key that matches the
+    resolved provider instead of the first key found in the .env file.
+    """
     from hermes_cli.config import load_config, load_env
 
     cfg = load_config()
@@ -49,23 +53,46 @@ def _load_agent_config():
         model_provider = ""
         model_base_url = ""
 
-    api_key = (
-        env.get("OPENAI_API_KEY")
-        or env.get("ANTHROPIC_API_KEY")
-        or env.get("XAI_API_KEY")
-        or env.get("GEMINI_API_KEY")
-        or env.get("NOUS_API_KEY")
-        or env.get("OPENCODE_GO_API_KEY")
-        or env.get("OPENROUTER_API_KEY")
-        or env.get("DEEPSEEK_API_KEY")
-        or cfg.get("api_key")
-    )
-    base_url = cfg.get("base_url") or model_base_url or env.get("OPENAI_BASE_URL")
     provider = cfg.get("provider") or model_provider
     api_mode = cfg.get("api_mode") or (model.get("api_mode") if isinstance(model, dict) else None)
+    base_url = cfg.get("base_url") or model_base_url or env.get("OPENAI_BASE_URL")
     max_iterations = cfg.get("max_iterations", 90)
     if not isinstance(max_iterations, int):
         max_iterations = 90
+
+    # Provider-aware API key selection
+    _PROVIDER_KEY_MAP = {
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "xai": "XAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "nous": "NOUS_API_KEY",
+        "opencode-go": "OPENCODE_GO_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+    }
+
+    api_key = None
+    if provider:
+        # Normalize provider name for lookup
+        normalized = provider.lower().replace("_", "-")
+        env_key = _PROVIDER_KEY_MAP.get(normalized)
+        if env_key:
+            api_key = env.get(env_key)
+
+    # Fallback: generic keys in priority order (only if provider-specific not found)
+    if not api_key:
+        api_key = (
+            env.get("OPENAI_API_KEY")
+            or env.get("ANTHROPIC_API_KEY")
+            or env.get("XAI_API_KEY")
+            or env.get("GEMINI_API_KEY")
+            or env.get("NOUS_API_KEY")
+            or env.get("OPENCODE_GO_API_KEY")
+            or env.get("OPENROUTER_API_KEY")
+            or env.get("DEEPSEEK_API_KEY")
+            or cfg.get("api_key")
+        )
 
     return {
         "model": model_name,
