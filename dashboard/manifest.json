@@ -9,5 +9,6 @@
     "position": "after:chat"
   },
   "entry": "dist/index.js",
+  "css": "dist/hljs-theme.css",
   "api": "plugin_api.py"
 }

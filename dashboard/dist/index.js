@@ -6,9 +6,18 @@
   const { Card, CardContent, Button, Input, Badge, Separator } = components;
   const { cn, timeAgo } = utils;
 
-  /* ── CodeBlock with hover copy button ─────────────────────────── */
+  /* ── Load highlight.js for syntax highlighting ───────────────── */
+  if (!window.hljs) {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js";
+    script.async = true;
+    document.head.appendChild(script);
+  }
+
+  /* ── CodeBlock with hover copy button + syntax highlighting ───── */
   function CodeBlock({ code, lang, fontSize }) {
     const [copied, setCopied] = useState(false);
+    const preRef = useRef(null);
     const handleCopy = useCallback(() => {
       navigator.clipboard.writeText(code).then(() => {
         setCopied(true);
@@ -17,6 +26,32 @@
     }, [code]);
 
     const codeStyle = fontSize ? { fontSize: `${fontSize - 2}px`, lineHeight: 1.6 } : {};
+
+    useEffect(() => {
+      function applyHighlight() {
+        if (!preRef.current) return;
+        if (window.hljs && lang) {
+          try {
+            const result = window.hljs.highlight(code, { language: lang });
+            preRef.current.innerHTML = result.value;
+          } catch {
+            preRef.current.textContent = code;
+          }
+        } else {
+          preRef.current.textContent = code;
+        }
+      }
+      applyHighlight();
+      if (!window.hljs) {
+        const timer = setInterval(() => {
+          if (window.hljs) {
+            applyHighlight();
+            clearInterval(timer);
+          }
+        }, 200);
+        return () => clearInterval(timer);
+      }
+    }, [code, lang]);
 
     return React.createElement(
       "div",
@@ -63,8 +98,7 @@
         ),
       React.createElement(
         "pre",
-        { className: "whitespace-pre-wrap break-words m-0", style: codeStyle },
-        code
+        { className: "whitespace-pre-wrap break-words m-0 hljs", style: codeStyle, ref: preRef }
       )
     );
   }
