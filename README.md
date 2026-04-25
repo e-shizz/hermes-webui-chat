@@ -1,6 +1,6 @@
 # Hermes WebUI Chat
 
-A native web chat plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent) that brings OpenWebUI-style streaming chat directly into the dashboard. No terminal. No xterm.js. Just clean, fast, native React chat.
+A native web chat plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent) that brings clean, streaming chat directly into the dashboard. No terminal. No xterm.js. Just fast, native React chat.
 
 Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Track.
 
@@ -17,7 +17,7 @@ Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Trac
 
 | Criterion | How We Deliver |
 |-----------|----------------|
-| **Most awesome** | Real-time SSE streaming with OpenWebUI-style bubbles — the *only* entry with a proper streaming chat UX. Hover-to-listen TTS. Live model discovery. Glassmorphic sidebar. It feels like a modern chat app, not a terminal wrapped in a browser. |
+| **Most awesome** | Real-time SSE streaming with clean chat bubbles. Hover-to-listen TTS. Live model discovery. Glassmorphic sidebar. It feels like a modern chat app, not a terminal wrapped in a browser. |
 | **Most useful** | Native chat without `--tui`. Session resume from sidebar. Model selector with per-chat override. TTS passthrough using Hermes' own infrastructure. Anyone who finds the embedded TUI clunky now has a first-class alternative. |
 | **Clean & hackable** | Single-file frontend IIFE (~25KB). Single-file Python backend. No build step for users. Drop it in `~/.hermes/plugins/webui/` and `hermes dashboard` picks it up. The entire plugin is ~350 lines of frontend JS and ~250 lines of backend Python. |
 | **Bonus: Firefox ML Ready** | Because this is a pure web frontend using standard `fetch()` + SSE, it can be wired to [Firefox ML](https://blog.mozilla.org/en/mozilla/ai/)'s local on-device runtime for fully private, offline inference — no server round-trip. The architecture is provider-agnostic by design. |
@@ -35,16 +35,16 @@ Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Trac
 
 ## ✅ Features
 
-- **OpenWebUI-style chat bubbles** — user right/muted, assistant left/plain
+- **Clean chat bubbles** — user right/muted, assistant left/plain
 - **SSE streaming** — tokens appear in real-time, no polling
-- **Session sidebar** — list, search-ish (paginated), resume, new chat
+- **Session sidebar** — list, paginated browse, resume, new chat
 - **Deep-link resume** — `?resume=<session_id>` works for sharing/bookmarking
 - **Collapsible sidebar** — click × to collapse, hamburger to reopen
 - **Font size slider** — 12–22px, persisted to `localStorage`
 - **Code blocks** — syntax highlight labels + hover copy-to-clipboard
 - **TTS passthrough** — "Listen" button on any assistant message; uses Hermes' own `text_to_speech` tool
 - **Model selector** — live discovery from provider API + static fallback catalog; per-chat override; persists to `localStorage`
-- **Zero core patches** — pure plugin, works on stock Hermes (only needs the existing `App.tsx` flex fix, already merged)
+- **Zero core patches** — pure plugin, works on stock Hermes (needs the `App.tsx` flex fix from [PR pending] / [branch `feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat))
 
 ---
 
@@ -61,6 +61,17 @@ hermes dashboard
 ```
 
 No build step. No npm install. The plugin ships as a pre-bundled IIFE.
+
+---
+
+## 🔗 Required Patches
+
+This plugin builds on the Hermes dashboard extensibility work:
+
+- **PR [#15658](https://github.com/NousResearch/hermes-agent/pull/15658)** (merged) — Page-scoped plugin slots for built-in pages. Enables the plugin system this chat UI mounts into.
+- **App.tsx flex layout fix** — Plugin routes need `display: flex` to support viewport-filling layouts. Available on branch [`feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat) in my fork. A support thread will be opened to fast-track this upstream.
+
+Without the flex fix, the plugin still *functions* but the chat area won't fill the full viewport height cleanly.
 
 ---
 
