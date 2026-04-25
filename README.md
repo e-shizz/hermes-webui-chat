@@ -13,14 +13,9 @@ Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Trac
 **Repo:** https://github.com/e-shizz/hermes-webui-chat  
 **License:** MIT
 
-### Why This Is Awesome & Useful
+### What It Does
 
-| Criterion | How We Deliver |
-|-----------|----------------|
-| **Most awesome** | Real-time SSE streaming with clean chat bubbles. Hover-to-listen TTS. Live model discovery. Glassmorphic sidebar. It feels like a modern chat app, not a terminal wrapped in a browser. |
-| **Most useful** | Native chat without `--tui`. Session resume from sidebar. Model selector with per-chat override. TTS passthrough using Hermes' own infrastructure. Anyone who finds the embedded TUI clunky now has a first-class alternative. |
-| **Clean & hackable** | Single-file frontend IIFE (~25KB). Single-file Python backend. No build step for users. Drop it in `~/.hermes/plugins/webui/` and `hermes dashboard` picks it up. The entire plugin is ~350 lines of frontend JS and ~250 lines of backend Python. |
-| **Bonus: Firefox ML Ready** | Because this is a pure web frontend using standard `fetch()` + SSE, it can be wired to [Firefox ML](https://blog.mozilla.org/en/mozilla/ai/)'s local on-device runtime for fully private, offline inference — no server round-trip. The architecture is provider-agnostic by design. |
+This plugin adds a "Web Chat" tab to the Hermes dashboard with a native chat interface. It streams responses in real-time using Server-Sent Events, supports session resume from the sidebar, and includes TTS and model selection built on Hermes' own infrastructure.
 
 ### Screenshots / Demo
 
@@ -29,7 +24,7 @@ Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Trac
 > 📸 Screenshot 1: Main chat view with streaming response  
 > 📸 Screenshot 2: Collapsed sidebar, wide chat area  
 > 📸 Screenshot 3: TTS "Listen" button on assistant message  
-> 📸 Screenshot 4: Model selector dropdown (12 models from opencode-go)
+> 📸 Screenshot 4: Model selector dropdown
 
 ---
 
@@ -44,7 +39,7 @@ Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Trac
 - **Code blocks** — syntax highlight labels + hover copy-to-clipboard
 - **TTS passthrough** — "Listen" button on any assistant message; uses Hermes' own `text_to_speech` tool
 - **Model selector** — live discovery from provider API + static fallback catalog; per-chat override; persists to `localStorage`
-- **Zero core patches** — pure plugin, works on stock Hermes (needs the `App.tsx` flex fix from [PR pending] / [branch `feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat))
+- **Zero core patches** — pure plugin, works on stock Hermes (needs the `App.tsx` flex fix from [branch `feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat))
 
 ---
 
