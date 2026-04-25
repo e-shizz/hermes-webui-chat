@@ -152,6 +152,7 @@ async def models_endpoint():
     base_url = config.get("base_url")
     api_key = config.get("api_key")
     current_model = config.get("model", "")
+    provider = config.get("provider", "")
 
     models = []
     source = "config"
