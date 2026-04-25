@@ -145,23 +145,25 @@ def _load_agent_config():
 async def models_endpoint():
     """Return available models for the configured provider.
 
-    Tries live API first (using the exact base_url/api_key from config),
-    falls back to only the currently configured model.
+    Tries live API first (using the provider's /models endpoint),
+    falls back to Hermes' static curated catalog if unreachable.
+    Always includes the currently configured model.
     """
     config = _load_agent_config()
+    provider = config.get("provider") or ""
     base_url = config.get("base_url")
     api_key = config.get("api_key")
+    api_mode = config.get("api_mode")
     current_model = config.get("model", "")
-    provider = config.get("provider", "")
 
     models = []
-    source = "config"
+    source = "static"
 
-    # Try live API probe using the exact config values
-    if base_url and api_key:
+    # 1. Try live API probe first (works for most OpenAI-compatible providers)
+    if base_url:
         try:
             from hermes_cli.models import probe_api_models
-            result = probe_api_models(api_key, base_url, timeout=5.0)
+            result = probe_api_models(api_key, base_url, timeout=5.0, api_mode=api_mode)
             live_models = result.get("models")
             if live_models:
                 models = sorted(set(str(m) for m in live_models if m))
@@ -169,25 +171,25 @@ async def models_endpoint():
         except Exception:
             pass
 
-    # Provider-specific hardcoded fallbacks when live probe fails
-    # (these providers don't expose /v1/models)
-    if source != "live" and provider == "opencode-go":
-        models = [
-            "kimi-k2.6",
-            "kimi-k2.6-thinking",
-            "deepseek-v4-pro",
-            "minimax-m2.7",
-        ]
-        source = "provider_fallback"
+    # 2. Fall back to Hermes' built-in provider catalog (agnostic — works for all providers)
+    if not models and provider:
+        try:
+            from hermes_cli.models import normalize_provider, _PROVIDER_MODELS
+            normalized = normalize_provider(provider)
+            if normalized in _PROVIDER_MODELS:
+                models = list(_PROVIDER_MODELS[normalized])
+                source = "static"
+        except Exception:
+            pass
 
-    # Fallback: only the configured model (never a stale static catalog)
-    if not models and current_model:
-        models = [current_model]
+    # 3. Ensure current model is always included
+    if current_model and current_model not in models:
+        models.insert(0, current_model)
 
     return {
         "models": models,
         "source": source,
-        "provider": config.get("provider", ""),
+        "provider": provider,
         "current_model": current_model,
     }
 
