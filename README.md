@@ -1,35 +1,118 @@
-# OpenWebUI Chat — Hermes Dashboard Plugin
+# Hermes WebUI Chat
 
-A native web chat experience for [Hermes Agent](https://github.com/NousResearch/hermes-agent) with OpenWebUI-style chat bubbles, session management, and real-time streaming.
+A native web chat plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent) that brings clean, streaming chat directly into the dashboard. No terminal. No xterm.js. Just fast, native React chat.
 
-## Features
+Built for the **Nous Research Dashboard Hackathon** (2026-04-25) — Plugin Track.
 
-- 💬 **OpenWebUI-style chat bubbles** — Clean, readable message layout
-- 🔄 **Session resume** — Pick up any conversation from the sidebar
-- ⚡ **SSE streaming** — Real-time token-by-token responses
-- 📚 **Session list** — Browse all your chats with timestamps
-- 🔧 **Code blocks with copy** — Syntax-highlighted code with one-click copy
-- 🔢 **Font size slider** — Adjust text size to your preference
+---
 
-## Install
+## 🏆 Contest Submission
+
+**Track:** Plugin  
+**Author:** [e-shizz](https://github.com/e-shizz)  
+**Repo:** https://github.com/e-shizz/hermes-webui-chat  
+**License:** MIT
+
+### What It Does
+
+This plugin adds a "Web Chat" tab to the Hermes dashboard with a native chat interface. It streams responses in real-time using Server-Sent Events, supports session resume from the sidebar, and includes TTS and model selection built on Hermes' own infrastructure.
+
+### Screenshots / Demo
+
+*(Add screenshots or screen recording here before submitting)*
+
+> 📸 Screenshot 1: Main chat view with streaming response  
+> 📸 Screenshot 2: Collapsed sidebar, wide chat area  
+> 📸 Screenshot 3: TTS "Listen" button on assistant message  
+> 📸 Screenshot 4: Model selector dropdown
+
+---
+
+## ✅ Features
+
+- **Clean chat bubbles** — user right/muted, assistant left/plain
+- **SSE streaming** — tokens appear in real-time, no polling
+- **Session sidebar** — list, paginated browse, resume, new chat
+- **Deep-link resume** — `?resume=<session_id>` works for sharing/bookmarking
+- **Collapsible sidebar** — click × to collapse, hamburger to reopen
+- **Font size slider** — 12–22px, persisted to `localStorage`
+- **Code blocks** — syntax highlight labels + hover copy-to-clipboard
+- **TTS passthrough** — "Listen" button on any assistant message; uses Hermes' own `text_to_speech` tool
+- **Model selector** — live discovery from provider API + static fallback catalog; per-chat override; persists to `localStorage`
+- **Zero core patches** — pure plugin, works on stock Hermes (needs the `App.tsx` flex fix from [branch `feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat))
+
+---
+
+## 🚀 Installation
 
 ```bash
-# Clone into your Hermes plugins directory
-git clone https://github.com/e-shizz/openwebui-chat.git ~/.hermes/plugins/openwebui-chat
+# 1. Clone into your Hermes plugins directory
+git clone https://github.com/e-shizz/hermes-webui-chat.git ~/.hermes/plugins/webui
 
-# Restart Hermes dashboard to load the plugin
+# 2. Restart the dashboard
+hermes dashboard
+
+# 3. Look for the "Web Chat" tab in the sidebar
 ```
 
-## Files
+No build step. No npm install. The plugin ships as a pre-bundled IIFE.
 
-- `dashboard/dist/index.js` — Frontend bundle (React, no build step needed)
-- `dashboard/plugin_api.py` — FastAPI backend for chat streaming
-- `dashboard/manifest.json` — Plugin manifest
+---
 
-## Architecture
+## 🔗 Required Patches
 
-The plugin exposes a FastAPI router mounted at `/api/plugins/openwebui-chat/chat` which handles SSE streaming to the frontend. The frontend uses the Hermes Plugin SDK (`window.__HERMES_PLUGIN_SDK__`) for React, UI components, and API access.
+This plugin builds on the Hermes dashboard extensibility work:
 
-## License
+- **PR [#15658](https://github.com/NousResearch/hermes-agent/pull/15658)** (merged) — Page-scoped plugin slots for built-in pages. Enables the plugin system this chat UI mounts into.
+- **App.tsx flex layout fix** — Plugin routes need `display: flex` to support viewport-filling layouts. Available on branch [`feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat) in my fork. A support thread will be opened to fast-track this upstream.
 
-MIT
+Without the flex fix, the plugin still *functions* but the chat area won't fill the full viewport height cleanly.
+
+---
+
+## 🌐 Firefox ML Integration (Future/Bonus)
+
+Because the frontend is a standard web app using `fetch()` and `EventSource`, it can be adapted to talk to Firefox's local AI runtime instead of the Hermes backend:
+
+```javascript
+// Concept: swap the SSE endpoint for Firefox ML's local port
+const eventSource = new EventSource('http://localhost:8080/v1/chat/completions');
+```
+
+This makes the same chat UI work for:
+- **Cloud inference** (current — Hermes backend)
+- **Local on-device inference** (future — Firefox ML, llamafile, etc.)
+
+The plugin architecture is intentionally provider-agnostic.
+
+---
+
+## 🎨 Built With
+
+- Hermes Plugin SDK (`window.__HERMES_PLUGIN_SDK__`) — React, hooks, UI components, API client
+- Vanilla SSE (`EventSource`) — no WebSocket complexity
+- `AIAgent.run_conversation()` from Hermes core — same agent power as the TUI
+- FastAPI router — mounted at `/api/plugins/webui/`
+
+---
+
+## 📝 Technical Notes
+
+**Endpoints exposed by the plugin backend:**
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/plugins/webui/chat` | SSE streaming chat |
+| `GET /api/plugins/webui/models` | Live model discovery |
+| `POST /api/plugins/webui/tts` | Generate TTS audio |
+| `GET /api/plugins/webui/audio?path=...` | Serve TTS audio files |
+
+**Frontend bundle:** `dashboard/dist/index.js` (~25KB IIFE)  
+**Backend:** `dashboard/plugin_api.py` (~250 lines)  
+**Manifest:** `dashboard/manifest.json`
+
+---
+
+## 💡 Acknowledgements
+
+Built with [Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research. Thanks to the Hermes team for the plugin SDK and dashboard extensibility architecture.

@@ -6,9 +6,18 @@
   const { Card, CardContent, Button, Input, Badge, Separator } = components;
   const { cn, timeAgo } = utils;
 
-  /* ── CodeBlock with hover copy button ─────────────────────────────────────────────── */
+  /* ── Load highlight.js for syntax highlighting ───────────────── */
+  if (!window.hljs) {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js";
+    script.async = true;
+    document.head.appendChild(script);
+  }
+
+  /* ── CodeBlock with hover copy button + syntax highlighting ───── */
   function CodeBlock({ code, lang, fontSize }) {
     const [copied, setCopied] = useState(false);
+    const preRef = useRef(null);
     const handleCopy = useCallback(() => {
       navigator.clipboard.writeText(code).then(() => {
         setCopied(true);
@@ -18,13 +27,38 @@
 
     const codeStyle = fontSize ? { fontSize: `${fontSize - 2}px`, lineHeight: 1.6 } : {};
 
+    useEffect(() => {
+      function applyHighlight() {
+        if (!preRef.current) return;
+        if (window.hljs && lang) {
+          try {
+            const result = window.hljs.highlight(code, { language: lang });
+            preRef.current.innerHTML = result.value;
+          } catch {
+            preRef.current.textContent = code;
+          }
+        } else {
+          preRef.current.textContent = code;
+        }
+      }
+      applyHighlight();
+      if (!window.hljs) {
+        const timer = setInterval(() => {
+          if (window.hljs) {
+            applyHighlight();
+            clearInterval(timer);
+          }
+        }, 200);
+        return () => clearInterval(timer);
+      }
+    }, [code, lang]);
+
     return React.createElement(
       "div",
       {
         className:
           "group relative bg-muted/80 bg-black/20 rounded-lg p-3 my-2 font-mono text-xs text-foreground overflow-x-auto border border-border/30",
       },
-      /* Copy button — appears on hover */
       React.createElement(
         "button",
         {
@@ -56,7 +90,6 @@
               "Copy"
             )
       ),
-      /* Language label */
       lang &&
         React.createElement(
           "div",
@@ -65,8 +98,7 @@
         ),
       React.createElement(
         "pre",
-        { className: "whitespace-pre-wrap break-words m-0", style: codeStyle },
-        code
+        { className: "whitespace-pre-wrap break-words m-0 hljs", style: codeStyle, ref: preRef }
       )
     );
   }
@@ -75,8 +107,37 @@
   function ChatBubble({ role, content, isStreaming, fontSize }) {
     const isUser = role === "user";
     const textStyle = fontSize ? { fontSize: `${fontSize}px`, lineHeight: 1.6 } : {};
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [audioError, setAudioError] = useState(null);
 
-    /* ── User: readable muted bubble ── */
+    const handlePlayTTS = useCallback(async () => {
+      if (isPlaying || !content) return;
+      setIsPlaying(true);
+      setAudioError(null);
+      try {
+        const res = await fetch("/api/plugins/webui/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: content }),
+        });
+        const data = await res.json();
+        if (!data.success || !data.audio_url) {
+          throw new Error(data.error || "TTS failed");
+        }
+        const audio = new Audio(data.audio_url);
+        audio.onended = () => setIsPlaying(false);
+        audio.onerror = () => {
+          setAudioError("Audio playback failed");
+          setIsPlaying(false);
+        };
+        await audio.play();
+      } catch (err) {
+        console.error("TTS error:", err);
+        setAudioError(err.message);
+        setIsPlaying(false);
+      }
+    }, [isPlaying, content]);
+
     if (isUser) {
       return React.createElement(
         "div",
@@ -101,7 +162,6 @@
       );
     }
 
-    /* ── Assistant: plain text + code blocks in darker containers ── */
     function parseSegments(text) {
       if (!text) return [{ type: "text", content: "" }];
       const segments = [];
@@ -144,26 +204,70 @@
 
     return React.createElement(
       "div",
-      { className: "flex w-full mb-3 justify-start" },
-      React.createElement("div", { className: "max-w-[85%] text-sm leading-relaxed" }, children)
+      { className: "flex w-full mb-3 justify-start group" },
+      React.createElement(
+        "div",
+        { className: "max-w-[85%] text-sm leading-relaxed" },
+        children,
+        /* Action row: TTS play button */
+        !isStreaming &&
+          React.createElement(
+            "div",
+            { className: "flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150" },
+            React.createElement(
+              "button",
+              {
+                onClick: handlePlayTTS,
+                disabled: isPlaying,
+                className: "flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer border border-border/30 disabled:opacity-50",
+                title: isPlaying ? "Playing..." : "Read aloud (TTS)",
+              },
+              isPlaying
+                ? React.createElement(
+                    React.Fragment,
+                    null,
+                    React.createElement(
+                      "svg",
+                      { width: 10, height: 10, viewBox: "0 0 24 24", fill: "currentColor" },
+                      React.createElement("rect", { x: 6, y: 4, width: 4, height: 16 }),
+                      React.createElement("rect", { x: 14, y: 4, width: 4, height: 16 })
+                    ),
+                    "Playing..."
+                  )
+                : React.createElement(
+                    React.Fragment,
+                    null,
+                    React.createElement(
+                      "svg",
+                      { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2 },
+                      React.createElement("polygon", { points: "11 5 6 9 2 9 2 15 6 15 11 19 11 5" }),
+                      React.createElement("path", { d: "M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" })
+                    ),
+                    "Listen"
+                  )
+            ),
+            audioError &&
+              React.createElement("span", { className: "text-[10px] text-destructive" }, audioError)
+          )
+      )
     );
   }
 
-  /* ── SessionItem ────────────────────────────────────────────── */
-  function SessionItem({ session, isActive, onClick }) {
+  /* ── SessionItem ─────────────────────────────────────────────── */
+  function SessionItem({ session, isActive, onClick, onDelete }) {
     return React.createElement(
       "div",
       {
         onClick: onClick,
         className: cn(
-          "cursor-pointer px-3 py-2.5 border-b border-border/40 transition-colors select-none",
+          "cursor-pointer px-3 py-2.5 border-b border-border/40 transition-colors select-none group relative",
           "hover:bg-accent/60",
           isActive && "bg-accent"
         ),
       },
       React.createElement(
         "div",
-        { className: "font-medium text-sm truncate leading-tight" },
+        { className: "font-medium text-sm truncate leading-tight pr-6" },
         session.title || session.preview || "Untitled chat"
       ),
       React.createElement(
@@ -185,57 +289,51 @@
             className: "w-1.5 h-1.5 rounded-full bg-green-500 inline-block",
             title: "Active",
           })
+      ),
+      React.createElement(
+        "button",
+        {
+          onClick: (e) => { e.stopPropagation(); onDelete(); },
+          className: "absolute top-0 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive cursor-pointer",
+          title: "Delete session",
+        },
+        React.createElement(
+          "svg",
+          { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+          React.createElement("polyline", { points: "3 6 5 6 21 6" }),
+          React.createElement("path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" })
+        )
       )
     );
   }
 
-  /* ── MobileToggle ───────────────────────────────────────────── */
-  function MobileToggle({ sidebarOpen, onToggle }) {
-    return React.createElement(
-      "button",
-      {
-        onClick: onToggle,
-        className:
-          "md:hidden fixed bottom-4 left-4 z-50 h-10 w-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center",
-        title: sidebarOpen ? "Hide sessions" : "Show sessions",
-      },
-      sidebarOpen ? "✕" : "☰"
-    );
-  }
-
-  /* ── Hermes ASCII caduceus (from TUI banner.ts) ────────────── */
+  /* ── Hermes ASCII caduceus ───────────────────────────────────── */
   const CADUCEUS_ART = [
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⣀⣀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⢀⣠⣴⣾⣿⣿⣇⠸⣿⣿⠇⣸⣿⣿⣷⣦⣄⡀⠀⠀⠀⠀⠀⠀",
-    "⠀⢀⣠⣴⣶⠿⠋⣩⡿⣿⡿⠻⣿⡇⢠⡄⢸⣿⠟⢿⣿⢿⣍⠙⠿⣶⣦⣄⡀⠀",
-    "⠀⠀⠉⠉⠁⠶⠟⠋⠀⠉⠀⢀⣈⣁⡈⢁⣈⣁⡀⠀⠉⠀⠙⠻⠶⠈⠉⠉⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⣿⡿⠛⢁⡈⠛⢿⣿⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⣿⣦⣤⣈⠁⢠⣴⣿⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠻⢿⣿⣦⡉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⢷⣦⣈⠛⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⠦⠈⠙⠿⣦⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣤⡈⠁⢤⣿⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠷⠄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⠑⢶⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⠁⢰⡆⠈⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠳⠈⣡⠞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀"
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u2840\u2800\u28c0\u28c0\u2800\u2880\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28e0\u28f4\u28fe\u28ff\u28ff\u28c7\u2838\u28ff\u28ff\u2807\u28f8\u28ff\u28ff\u28f7\u28e6\u28c4\u2840\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2880\u28e0\u28f4\u28f6\u283f\u280b\u28e9\u287f\u28ff\u287f\u283b\u28ff\u2847\u28a0\u2844\u28b8\u28ff\u281f\u28bf\u28ff\u28bf\u28cd\u2819\u283f\u28f6\u28e6\u28c4\u2840\u2800",
+    "\u2800\u2800\u2809\u2809\u2801\u2836\u281f\u280b\u2800\u2809\u2800\u2880\u28c8\u28c1\u2848\u2881\u28c8\u28c1\u2840\u2800\u2809\u2800\u2819\u283b\u2836\u2808\u2809\u2809\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28f4\u28ff\u287f\u281b\u2881\u2848\u281b\u28bf\u28ff\u28e6\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u283f\u28ff\u28e6\u28e4\u28c8\u2801\u28a0\u28f4\u28ff\u283f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2809\u283b\u28bf\u28ff\u28e6\u2849\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28b7\u28e6\u28c8\u281b\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28a0\u28f4\u2826\u2808\u2819\u283f\u28e6\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2838\u28ff\u28e4\u2848\u2801\u28a4\u28ff\u2807\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2809\u281b\u2837\u2804\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u2811\u28b6\u28c4\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u2801\u28b0\u2846\u2808\u287f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2833\u2808\u28e1\u281e\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800",
+    "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800"
   ];
-  /* ── OpenWebUIChat (main component) ─────────────────────────── */
-  function OpenWebUIChat() {
+
+  /* ── WebUIChat (main component) ──────────────────────────────── */
+  function WebUIChat() {
     const [sessions, setSessions] = useState([]);
     const [activeSessionId, setActiveSessionId] = useState(null);
     const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [streamingContent, setStreamingContent] = useState("");
-    const [sidebarOpen, setSidebarOpen] = useState(() => {
-      try {
-        return typeof window !== "undefined" && window.innerWidth >= 768;
-      } catch {
-        return true;
-      }
-    });
     const [error, setError] = useState(null);
     const [fontSize, setFontSize] = useState(() => {
       try {
@@ -245,16 +343,61 @@
         return 14;
       }
     });
+    const [sidebarOpen, setSidebarOpen] = useState(() => {
+      try {
+        const saved = localStorage.getItem("hermes-chat-sidebar");
+        return saved !== "false";
+      } catch {
+        return true;
+      }
+    });
+    const [availableModels, setAvailableModels] = useState([]);
+    const [selectedModel, setSelectedModel] = useState(() => {
+      try {
+        return localStorage.getItem("hermes-chat-selected-model") || "";
+      } catch {
+        return "";
+      }
+    });
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
-    /* Handle ?resume=<session_id> from URL (like /chat?resume=...) */
+    /* Fetch available models from backend (live API + fallback) */
+    useEffect(() => {
+      fetch("/api/plugins/webui/models")
+        .then((r) => r.json())
+        .then((data) => {
+          const modelList = (data.models || []).filter(Boolean);
+          setAvailableModels(modelList);
+          // If no model is selected, default to current_model from backend
+          const current = data.current_model || (modelList[0] || "");
+          if (!selectedModel && current) {
+            setSelectedModel(current);
+          } else if (selectedModel && !modelList.includes(selectedModel)) {
+            // If previously selected model is no longer available, reset
+            setSelectedModel(current);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to load models:", err);
+        });
+    }, []);
+
+    /* Persist selected model */
+    useEffect(() => {
+      try {
+        if (selectedModel) {
+          localStorage.setItem("hermes-chat-selected-model", selectedModel);
+        }
+      } catch {}
+    }, [selectedModel]);
+
+    /* Handle ?resume=<session_id> from URL */
     useEffect(() => {
       const params = new URLSearchParams(window.location.search);
       const resumeId = params.get("resume");
       if (resumeId) {
         setActiveSessionId(resumeId);
-        // Clean the URL so a refresh doesn't re-trigger
         const url = new URL(window.location.href);
         url.searchParams.delete("resume");
         window.history.replaceState({}, "", url.toString());
@@ -287,8 +430,6 @@
             .filter((m) => {
               if (m.role === "user") return true;
               if (m.role === "assistant") {
-                // Skip assistant messages that are purely tool-call turns
-                // (no text content) — they look like empty bubbles.
                 const hasContent = typeof m.content === "string" && m.content.trim().length > 0;
                 return hasContent;
               }
@@ -323,21 +464,41 @@
       } catch {}
     }, [fontSize]);
 
+    /* Persist sidebar state */
+    useEffect(() => {
+      try {
+        localStorage.setItem("hermes-chat-sidebar", String(sidebarOpen));
+      } catch {}
+    }, [sidebarOpen]);
+
     const handleNewChat = useCallback(() => {
       setActiveSessionId(null);
       setMessages([]);
       setInputValue("");
       setStreamingContent("");
       setError(null);
-      setSidebarOpen(false);
     }, []);
 
     const handleSelectSession = useCallback((id) => {
       setActiveSessionId(id);
       setStreamingContent("");
       setError(null);
-      setSidebarOpen(false);
     }, []);
+
+    const handleDeleteSession = useCallback((id) => {
+      api
+        .deleteSession(id)
+        .then(() => {
+          if (id === activeSessionId) {
+            handleNewChat();
+          }
+          refreshSessions();
+        })
+        .catch((err) => {
+          console.error("Failed to delete session:", err);
+          setError("Could not delete session.");
+        });
+    }, [activeSessionId, handleNewChat, refreshSessions]);
 
     const handleSend = useCallback(async () => {
       const text = inputValue.trim();
@@ -350,10 +511,14 @@
       setMessages((prev) => [...prev, { role: "user", content: text }]);
 
       try {
-        const res = await fetch("/api/plugins/openwebui-chat/chat", {
+        const res = await fetch("/api/plugins/webui/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: activeSessionId, message: text }),
+          body: JSON.stringify({
+            session_id: activeSessionId,
+            message: text,
+            model: selectedModel || undefined,
+          }),
         });
 
         if (!res.ok) {
@@ -402,9 +567,7 @@
                 setIsLoading(false);
                 streamDone = true;
               }
-            } catch (_) {
-              /* ignore malformed SSE lines */
-            }
+            } catch (_) {}
           }
         }
 
@@ -419,7 +582,7 @@
         ]);
         setIsLoading(false);
       }
-    }, [inputValue, isLoading, activeSessionId, refreshSessions]);
+    }, [inputValue, isLoading, activeSessionId, selectedModel, refreshSessions]);
 
     const handleKeyDown = useCallback(
       (e) => {
@@ -431,77 +594,89 @@
       [handleSend]
     );
 
-    /* ── Render ──────────────────────────────────────────────── */
     const hasContent = messages.length > 0 || streamingContent;
 
-    const renderInputBar = (centered) =>
+    /* ── Render ──────────────────────────────────────────────── */
+    return React.createElement(
+      "div",
+      { className: "flex flex-row h-full overflow-hidden normal-case" },
+
+      /* Sidebar */
       React.createElement(
         "div",
         {
           className: cn(
-            "w-full max-w-2xl mx-auto px-4",
-            centered ? "" : "border-t border-border p-3 md:p-4"
+            "flex flex-col h-full ease-out overflow-hidden min-w-0",
+            sidebarOpen
+              ? "bg-background/70 backdrop-blur-xl border-r border-border/30 shadow-lg"
+              : "opacity-0"
           ),
+          style: {
+            width: sidebarOpen ? "18rem" : "0px",
+            transition: "width 300ms ease-out, opacity 300ms ease-out",
+          },
         },
-        React.createElement(
-          "div",
-          { className: "flex gap-2 items-end" },
-          React.createElement(Input, {
-            ref: inputRef,
-            value: inputValue,
-            onChange: (e) => setInputValue(e.target.value),
-            onKeyDown: handleKeyDown,
-            placeholder: "Message Hermes...",
-            disabled: isLoading,
-            className: "flex-1 min-h-[44px]",
-            style: fontSize ? { fontSize: `${fontSize}px` } : {},
-          }),
-          React.createElement(
-            Button,
-            {
-              onClick: handleSend,
-              disabled: isLoading || !inputValue.trim(),
-              size: "default",
-            },
-            isLoading ? "…" : "Send"
-          )
-        ),
-        !centered && activeSessionId &&
-          React.createElement(
-            "div",
-            { className: "text-[10px] text-muted-foreground text-center mt-1.5" },
-            "Session: ",
-            activeSessionId.slice(0, 20),
-            "…"
-          )
-      );
-
-    const renderSidebarContent = () =>
-      React.createElement(
-        React.Fragment,
-        null,
         /* Sidebar header */
         React.createElement(
           "div",
-          { className: "p-3 border-b border-border" },
+          { className: "p-3 border-b border-border/40 flex-shrink-0 flex flex-col gap-2 w-full overflow-hidden" },
+          /* Row: toggle + new chat */
           React.createElement(
             "div",
             { className: "flex items-center gap-2" },
             React.createElement(
               Button,
+              {
+                onClick: () => setSidebarOpen(false),
+                size: "icon",
+                variant: "ghost",
+                className: "h-8 w-8 flex-shrink-0",
+                title: "Collapse sidebar",
+              },
+              React.createElement(
+                "svg",
+                { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+                React.createElement("rect", { x: 3, y: 3, width: 18, height: 18, rx: 2 }),
+                React.createElement("path", { d: "M9 3v18" }),
+                React.createElement("path", { d: "m14 9-3 3 3 3" })
+              )
+            ),
+            React.createElement(
+              Button,
               { onClick: handleNewChat, className: "flex-1", size: "sm" },
               "+ New Chat"
-            ),
+            )
           ),
-          /* Font size slider */
+          /* Row: model selector */
+          availableModels.length > 0 &&
+            React.createElement(
+              "div",
+              { className: "flex items-center gap-2" },
+              React.createElement(
+                "svg",
+                { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", className: "text-muted-foreground flex-shrink-0" },
+                React.createElement("path", { d: "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" }),
+                React.createElement("polyline", { points: "3.27 6.96 12 12.01 20.73 6.96" }),
+                React.createElement("line", { x1: 12, y1: 22.08, x2: 12, y2: 12 })
+              ),
+              React.createElement(
+                "select",
+                {
+                  value: selectedModel,
+                  onChange: (e) => setSelectedModel(e.target.value),
+                  className: "flex-1 h-8 px-2 text-xs bg-background border border-border/50 rounded-md text-foreground focus:outline-none focus:ring-1 focus:ring-ring focus:border-ring cursor-pointer normal-case tracking-normal",
+                  title: "Select model for new chats",
+                },
+                availableModels.map((m) =>
+                  React.createElement("option", { key: m, value: m, className: "bg-background text-foreground" }, m)
+                )
+              )
+            ),
+          /* Row: font size slider */
           React.createElement(
             "div",
-            { className: "mt-3 flex items-center gap-2" },
-            React.createElement(
-              "span",
-              { className: "text-[10px] text-muted-foreground whitespace-nowrap" },
-              "A"
-            ),
+            { className: "flex items-center gap-2" },
+            React.createElement("span", { className: "text-[10px] text-muted-foreground" }, "A"),
             React.createElement("input", {
               type: "range",
               min: 12,
@@ -510,17 +685,13 @@
               onChange: (e) => setFontSize(parseInt(e.target.value, 10)),
               className: "flex-1 h-1 appearance-none bg-border rounded-full cursor-pointer accent-primary",
             }),
-            React.createElement(
-              "span",
-              { className: "text-[11px] text-muted-foreground whitespace-nowrap" },
-              fontSize + "px"
-            )
+            React.createElement("span", { className: "text-[11px] text-muted-foreground" }, fontSize + "px")
           )
         ),
         /* Session list */
         React.createElement(
           "div",
-          { className: "flex-1 overflow-y-auto" },
+          { className: "flex-1 overflow-y-auto min-h-0 w-full overflow-hidden" },
           sessions.length === 0 &&
             React.createElement(
               "div",
@@ -533,47 +704,48 @@
               session: s,
               isActive: s.id === activeSessionId,
               onClick: () => handleSelectSession(s.id),
+              onDelete: () => handleDeleteSession(s.id),
             })
           )
         )
-      );
-
-    return React.createElement(
-      "div",
-      {
-        className: "flex flex-row w-full h-full overflow-hidden normal-case",
-      },
-
-      /* Sidebar — always visible, solid, part of layout */
-      React.createElement(
-        "div",
-        {
-          className: "flex flex-col w-72 flex-shrink-0 bg-background border-r border-border h-full",
-        },
-        renderSidebarContent()
       ),
 
       /* Main chat area */
       React.createElement(
         "div",
-        { className: "flex flex-col flex-1 min-w-0 relative" },
-
-        /* ── Empty state: centered hero with caduceus ── */
-        !hasContent &&
+        { className: "flex flex-col flex-1 min-w-0 h-full relative" },
+        /* Floating toggle when sidebar collapsed */
+        !sidebarOpen &&
           React.createElement(
             "div",
-            { className: "flex-1 flex flex-col items-center px-4" },
-            /* Caduceus + branding — centered vertically */
+            { className: "absolute top-2 left-2 z-10" },
             React.createElement(
+              Button,
+              {
+                onClick: () => setSidebarOpen(true),
+                size: "icon",
+                variant: "ghost",
+                className: "h-8 w-8 bg-background/60 backdrop-blur-sm hover:bg-background/80 shadow-sm border border-border/30",
+                title: "Open sidebar",
+              },
+              React.createElement(
+                "svg",
+                { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" },
+                React.createElement("line", { x1: 3, y1: 12, x2: 21, y2: 12 }),
+                React.createElement("line", { x1: 3, y1: 6, x2: 21, y2: 6 }),
+                React.createElement("line", { x1: 3, y1: 18, x2: 21, y2: 18 })
+              )
+            )
+          ),
+
+        /* Content area: empty state or messages */
+        !hasContent
+          ? React.createElement(
               "div",
-              { className: "flex-1 flex flex-col items-center justify-center" },
-              /* Caduceus ASCII art */
+              { className: "flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto" },
               React.createElement(
                 "div",
-                {
-                  className: "flex flex-col items-center mb-6 select-none",
-                  style: { fontFamily: "monospace", lineHeight: 1.15 },
-                },
+                { className: "flex flex-col items-center mb-6 select-none", style: { fontFamily: "monospace", lineHeight: 1.15 } },
                 CADUCEUS_ART.map((line, i) =>
                   React.createElement(
                     "div",
@@ -590,31 +762,12 @@
                   )
                 )
               ),
-              /* Branding */
-              React.createElement(
-                "h1",
-                { className: "text-2xl md:text-3xl font-bold text-foreground tracking-tight mb-1" },
-                "Nous Hermes"
-              ),
-              React.createElement(
-                "p",
-                { className: "text-sm text-muted-foreground" },
-                "Messenger of the Digital Gods"
-              )
-            ),
-            /* Input bar at bottom */
-            renderInputBar(true)
-          ),
-
-        /* ── Active state: messages flow from top ── */
-        hasContent &&
-          React.createElement(
-            "div",
-            { className: "flex flex-col flex-1" },
-            /* Messages scroll area */
-            React.createElement(
+              React.createElement("h1", { className: "text-2xl md:text-3xl font-bold text-foreground tracking-tight mb-1" }, "Nous Hermes"),
+              React.createElement("p", { className: "text-sm text-muted-foreground" }, "Messenger of the Digital Gods")
+            )
+          : React.createElement(
               "div",
-              { className: "flex-1 overflow-y-auto px-4 py-4 md:px-6" },
+              { className: "flex-1 overflow-y-auto min-h-0 px-4 py-4 md:px-6" },
               error &&
                 React.createElement(
                   "div",
@@ -638,13 +791,54 @@
                 }),
               React.createElement("div", { ref: messagesEndRef })
             ),
-            /* Input bar pinned at bottom */
-            renderInputBar(false)
-          )
+
+        /* Input bar - always visible */
+        React.createElement(
+          "div",
+          { className: "flex-shrink-0 border-t border-border p-3 md:p-4" },
+          React.createElement(
+            "div",
+            { className: "flex gap-2 items-end" },
+            React.createElement(Input, {
+              ref: inputRef,
+              value: inputValue,
+              onChange: (e) => setInputValue(e.target.value),
+              onKeyDown: handleKeyDown,
+              placeholder: "Message Hermes...",
+              disabled: isLoading,
+              className: "flex-1 min-h-[44px]",
+              style: fontSize ? { fontSize: `${fontSize}px` } : {},
+            }),
+            React.createElement(
+              Button,
+              {
+                onClick: handleSend,
+                disabled: isLoading || !inputValue.trim(),
+                size: "default",
+              },
+              isLoading ? "\u2026" : "Send"
+            )
+          ),
+          activeSessionId &&
+            React.createElement(
+              "div",
+              { className: "text-[10px] text-muted-foreground text-center mt-1" },
+              "Session: ",
+              activeSessionId.slice(0, 20),
+              "\u2026"
+            ),
+          selectedModel &&
+            React.createElement(
+              "div",
+              { className: "text-[10px] text-muted-foreground text-center mt-0.5" },
+              "Model: ",
+              selectedModel
+            )
+        )
       )
     );
   }
 
-  /* Register the plugin tab */
-  window.__HERMES_PLUGINS__.register("openwebui-chat", OpenWebUIChat);
+  /* Register */
+  window.__HERMES_PLUGINS__.register("webui", WebUIChat);
 })();
