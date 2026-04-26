@@ -1,0 +1,11 @@
+{
+  "name": "hermes-webui-chat",
+  "version": "1.1.0",
+  "private": true,
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
