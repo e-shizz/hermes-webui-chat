@@ -40,7 +40,9 @@ This plugin adds a "Web Chat" tab to the Hermes dashboard with a native chat int
 - **Code blocks** — syntax highlight labels + hover copy-to-clipboard
 - **TTS passthrough** — "Listen" button on any assistant message; uses Hermes' own `text_to_speech` tool
 - **Model selector** — live discovery from provider API + static fallback catalog; per-chat override; persists to `localStorage`
-- **Zero core patches** — pure plugin, works on stock Hermes (needs the `App.tsx` flex fix from [branch `feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat))
+- **Zero core patches** — pure plugin, drop-in installation
+
+> 🚨 **Does not work without [PR #15658](https://github.com/NousResearch/hermes-agent/pull/15658) merged.** The Hermes dashboard needs the `App.tsx` flex layout fix for plugin routes to fill the viewport. Without it, the chat area collapses to zero height. 🚨
 
 ---
 
