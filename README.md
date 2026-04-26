@@ -46,9 +46,8 @@ This plugin adds a "Web Chat" tab to the Hermes dashboard with a native chat int
 - **TTS passthrough** — "Listen" button on any assistant message; uses Hermes' own `text_to_speech` tool
 - **Model selector** — live discovery from provider API + static fallback catalog; per-chat override; persists to `localStorage`
 - **Theme agnostic** — works with light, dark, and any custom dashboard theme
-- **Zero core patches** — pure plugin, drop-in installation
 
-> 🚨 **Does not work without [PR #15658](https://github.com/NousResearch/hermes-agent/pull/15658) merged.** The Hermes dashboard needs the `App.tsx` flex layout fix for plugin routes to fill the viewport. Without it, the chat area collapses to zero height. 🚨
+> 🚨 **Requires a patched Hermes dashboard.** This plugin needs the `App.tsx` flex layout fix from our fork to fill the viewport. Without it, the chat area collapses to zero height. See [Required Patches](#-required-patches) below. 🚨
 
 ---
 
@@ -70,12 +69,28 @@ No build step. No npm install. The plugin ships as a pre-bundled IIFE.
 
 ## 🔗 Required Patches
 
-This plugin builds on the Hermes dashboard extensibility work:
+This plugin requires a **one-line change to the Hermes dashboard core** (`App.tsx`). Plugin routes need `display: flex` to support viewport-filling layouts. Without this fix, the chat area collapses to zero height.
 
-- **PR [#15658](https://github.com/NousResearch/hermes-agent/pull/15658)** (merged) — Page-scoped plugin slots for built-in pages. Enables the plugin system this chat UI mounts into.
-- **App.tsx flex layout fix** — Plugin routes need `display: flex` to support viewport-filling layouts. Available on branch [`feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat) in my fork. A support thread will be opened to fast-track this upstream.
+**Our fork with the fix:**
+- **Repo:** https://github.com/e-shizz/hermes-agent
+- **Branch:** [`feature/webui-chat`](https://github.com/e-shizz/hermes-agent/tree/feature/webui-chat)
+- **Commit:** [`eec701ff`](https://github.com/e-shizz/hermes-agent/commit/eec701ff) — `fix(dashboard): plugin routes get proper flex context for full-height layouts`
 
-Without the flex fix, the plugin still *functions* but the chat area won't fill the full viewport height cleanly.
+**What changed:**
+- `web/src/App.tsx`: Plugin routes (any route with key prefix `plugin:` or `override:`) now get `min-h-0 flex flex-1 flex-col` container treatment
+- This is the same flex treatment already given to `/chat` and `/docs` routes — extended to plugins
+- No other dashboard behavior changes; built-in pages use explicit heights so adding flex is harmless
+
+**How to install:**
+```bash
+# Clone our fork instead of upstream
+git clone https://github.com/e-shizz/hermes-agent.git ~/.hermes/hermes-agent
+cd ~/.hermes/hermes-agent
+git checkout feature/webui-chat
+# ...install as normal...
+```
+
+**Note:** PR [#15658](https://github.com/NousResearch/hermes-agent/pull/15658) (page-scoped plugin slots) is already merged upstream and is unrelated to the flex fix. The flex fix is a separate change that has not yet been upstreamed.
 
 ---
 
