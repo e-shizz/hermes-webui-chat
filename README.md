@@ -19,12 +19,13 @@ This plugin adds a "Web Chat" tab to the Hermes dashboard with a native chat int
 
 ### Screenshots / Demo
 
-*(Add screenshots or screen recording here before submitting)*
+| Main chat view with streaming response | Collapsed sidebar, wide chat area |
+|:---:|:---:|
+| ![Main chat view](screenshots/chat-main-view.png) | ![Collapsed sidebar](screenshots/chat-collapsed-sidebar.png) |
 
-> 📸 Screenshot 1: Main chat view with streaming response  
-> 📸 Screenshot 2: Collapsed sidebar, wide chat area  
-> 📸 Screenshot 3: TTS "Listen" button on assistant message  
-> 📸 Screenshot 4: Model selector dropdown
+| TTS "Listen" button on assistant message | Model selector dropdown |
+|:---:|:---:|
+| ![TTS listen button](screenshots/chat-tts-listen.png) | ![Model selector](screenshots/chat-model-selector.png) |
 
 ---
 
