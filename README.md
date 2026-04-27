@@ -64,7 +64,9 @@ git clone https://github.com/e-shizz/hermes-webui-chat.git ~/.hermes/plugins/web
 
 ### Step 2: Apply core dashboard patches
 
-This plugin needs small patches to the Hermes dashboard frontend for proper flex layout. Patches live in `patches/` and are applied automatically:
+This plugin includes **upstream dashboard patches** that fix plugin route layout in the Hermes dashboard. These patches benefit **all dashboard plugins** (not just WebUI) by giving plugin routes proper flex context, fixing inline code styling, and adding a "Resume in Web Chat" button to the Sessions page.
+
+Patches live in `patches/` and are applied automatically:
 
 ```bash
 cd ~/.hermes/plugins/webui
@@ -72,9 +74,13 @@ cd ~/.hermes/plugins/webui
 ```
 
 **What the patches do:**
-- Add flex context to plugin routes so the chat fills the viewport
-- Add "Resume in Web Chat" button to the Sessions page
-- Fix inline code background flashing on text selection
+| Patch | File | Purpose |
+|-------|------|---------|
+| `0001` | `web/src/App.tsx` | Plugin routes get `min-h-0 flex flex-1 flex-col` so plugins can use `h-full` for viewport-filling layouts |
+| `0002` | `web/src/pages/SessionsPage.tsx` | Adds "Resume in Web Chat" button (MessageSquare icon) that deep-links to `/webui?resume=<id>` |
+| `0003` | `web/src/index.css` | Inline code gets static readable background (no more flashing colors on text selection). Code blocks stay transparent so `hljs` syntax highlighting works |
+
+> **Note:** Patch 0003 fixes a dashboard-wide bug where `@nous-research/ui`'s `SelectionSwitcher` cycles `--selection-bg` through rainbow colors on every Ctrl+A, causing all inline code to flash. The fix scopes the static background to inline code only, preserving full syntax highlighting in code blocks.
 
 **After each `hermes upgrade`:**
 Run the same script — patches are idempotent (already-applied patches are skipped).
