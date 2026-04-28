@@ -231,24 +231,54 @@ async def models_endpoint():
 
 
 @router.get("/session-messages/{session_id}")
-async def session_messages_endpoint(session_id: str):
-    """Load all messages for a session, walking compression chains.
+async def session_messages_endpoint(
+    session_id: str,
+    limit: int = 200,
+    offset: Optional[int] = None,
+):
+    """Load messages for a session with pagination, walking compression chains.
 
     Unlike the core /api/sessions/:id/messages endpoint, this walks
-    ancestor sessions (compression chains) so that compressed conversations
-    still show their full history in the WebUI.
+    ancestor sessions (compression chains) so compressed conversations
+    still show their full history.
 
-    Returns: {"session_id": "...", "resolved_id": "...", "messages": [...]}
+    Query params:
+      limit  — max messages to return (default 200, max 500)
+      offset — skip N oldest messages (default None = tail mode: return last N)
+
+    Returns:
+      {"session_id": "...", "resolved_id": "...", "messages": [...],
+       "total": 1234, "limit": 200, "offset": 0, "has_more": true}
     """
     from hermes_state import SessionDB
     db = SessionDB()
     try:
         resolved = db.resolve_resume_session_id(session_id) or session_id
-        messages = db.get_messages_as_conversation(resolved, include_ancestors=True)
+        all_messages = db.get_messages_as_conversation(
+            resolved, include_ancestors=True
+        )
+        total = len(all_messages)
+
+        # Cap limit to prevent abuse
+        limit = min(max(limit, 1), 500)
+
+        if offset is None:
+            # Tail mode: return the LAST `limit` messages
+            start = max(0, total - limit)
+            messages = all_messages[start:]
+            offset = start
+        else:
+            offset = max(offset, 0)
+            messages = all_messages[offset : offset + limit]
+
         return {
             "session_id": session_id,
             "resolved_id": resolved,
             "messages": messages,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset > 0,
         }
     finally:
         db.close()

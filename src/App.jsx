@@ -635,6 +635,11 @@ function WebUIChat() {
   const [approvalRequest, setApprovalRequest] = useState(null);
   /* YOLO mode indicator */
   const [yoloEnabled, setYoloEnabled] = useState(false);
+  /* Message pagination */
+  const [messageTotal, setMessageTotal] = useState(0);
+  const [messageHasMore, setMessageHasMore] = useState(false);
+  const [messageOffset, setMessageOffset] = useState(0);
+  const messagesContainerRef = useRef(null);
 
   /* Folder state */
   const [folderState, setFolderState] = useState(loadFolderState);
@@ -690,60 +695,80 @@ function WebUIChat() {
 
   useEffect(() => { refreshSessions(); }, [refreshSessions]);
 
-  /* Messages */
-  useEffect(() => {
-    if (!activeSessionId) { setMessages([]); return; }
-    setError(null);
-    // Use plugin endpoint that walks compression chains (include_ancestors)
-    fetch(`/api/plugins/webui/session-messages/${encodeURIComponent(activeSessionId)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const allMsgs = data.messages || [];
-        const displayMsgs = [];
-        let lastAssistantIdx = -1;
-        for (const m of allMsgs) {
-          if (m.role === "user") {
-            displayMsgs.push({ role: m.role, content: typeof m.content === "string" ? m.content : "", images: [] });
-            continue;
-          }
-          if (m.role === "assistant") {
-            const content = typeof m.content === "string" ? m.content : "";
-            if (content.trim().length > 0) {
-              displayMsgs.push({ role: m.role, content, images: [] });
-              lastAssistantIdx = displayMsgs.length - 1;
+  /* Messages — paginated, loads last 200 by default */
+  const processMessages = useCallback((rawMsgs) => {
+    const displayMsgs = [];
+    let lastAssistantIdx = -1;
+    for (const m of rawMsgs) {
+      if (m.role === "user") {
+        displayMsgs.push({ role: m.role, content: typeof m.content === "string" ? m.content : "", images: [] });
+        continue;
+      }
+      if (m.role === "assistant") {
+        const content = typeof m.content === "string" ? m.content : "";
+        if (content.trim().length > 0) {
+          displayMsgs.push({ role: m.role, content, images: [] });
+          lastAssistantIdx = displayMsgs.length - 1;
+        }
+        continue;
+      }
+      if (m.role === "tool" && lastAssistantIdx >= 0) {
+        try {
+          const toolResult = JSON.parse(typeof m.content === "string" ? m.content : "");
+          const urls = [];
+          if (toolResult.image_url) urls.push(toolResult.image_url);
+          if (toolResult.url) urls.push(toolResult.url);
+          if (toolResult.images && Array.isArray(toolResult.images)) urls.push(...toolResult.images);
+          if (urls.length > 0) {
+            const target = displayMsgs[lastAssistantIdx];
+            if (target) {
+              target.images = target.images || [];
+              for (const u of urls) if (!target.images.includes(u)) target.images.push(u);
             }
-            continue;
           }
-          if (m.role === "tool" && lastAssistantIdx >= 0) {
-            try {
-              const toolResult = JSON.parse(typeof m.content === "string" ? m.content : "");
-              const urls = [];
-              if (toolResult.image_url) urls.push(toolResult.image_url);
-              if (toolResult.url) urls.push(toolResult.url);
-              if (toolResult.images && Array.isArray(toolResult.images)) urls.push(...toolResult.images);
-              if (urls.length > 0) {
-                const target = displayMsgs[lastAssistantIdx];
-                if (target) {
-                  target.images = target.images || [];
-                  for (const u of urls) if (!target.images.includes(u)) target.images.push(u);
-                }
-              }
-            } catch {}
-          }
-        }
-        for (const m of displayMsgs) {
-          if (m.role !== "assistant" || !m.content) continue;
-          const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-          let match;
-          while ((match = imgRegex.exec(m.content)) !== null) {
-            m.images = m.images || [];
-            if (!m.images.includes(match[2])) m.images.push(match[2]);
-          }
-        }
-        setMessages(displayMsgs);
-      })
-      .catch((err) => { console.error("Failed to load messages:", err); setError("Could not load session messages."); });
-  }, [activeSessionId]);
+        } catch {}
+      }
+    }
+    for (const m of displayMsgs) {
+      if (m.role !== "assistant" || !m.content) continue;
+      const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+      let match;
+      while ((match = imgRegex.exec(m.content)) !== null) {
+        m.images = m.images || [];
+        if (!m.images.includes(match[2])) m.images.push(match[2]);
+      }
+    }
+    return displayMsgs;
+  }, []);
+
+  const loadMessages = useCallback(async (sessionId, offset = null) => {
+    if (!sessionId) { setMessages([]); setMessageHasMore(false); setMessageTotal(0); setMessageOffset(0); return; }
+    setError(null);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("limit", "200");
+      if (offset !== null) qs.set("offset", String(offset));
+      const res = await fetch(`/api/plugins/webui/session-messages/${encodeURIComponent(sessionId)}?${qs.toString()}`);
+      const data = await res.json();
+      const newMsgs = processMessages(data.messages || []);
+      setMessageTotal(data.total || 0);
+      setMessageHasMore(data.has_more || false);
+      setMessageOffset(data.offset || 0);
+      if (offset !== null) {
+        // Prepend older messages
+        setMessages((prev) => [...newMsgs, ...prev]);
+      } else {
+        setMessages(newMsgs);
+      }
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+      setError("Could not load session messages.");
+    }
+  }, [processMessages]);
+
+  useEffect(() => {
+    loadMessages(activeSessionId);
+  }, [activeSessionId, loadMessages]);
 
   /* Auto-scroll */
   useEffect(() => {
@@ -778,6 +803,7 @@ function WebUIChat() {
       abortControllerRef.current?.abort();
     }
     setActiveSessionId(null); setMessages([]); setInputValue(""); setStreamingContent(""); setError(null); setCurrentPage(0);
+    setMessageTotal(0); setMessageHasMore(false); setMessageOffset(0);
     try { localStorage.removeItem("hermes-chat-active-session"); } catch {}
   }, []);
 
@@ -1329,6 +1355,21 @@ function WebUIChat() {
         ) : (
           <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 md:px-6">
             {error && <div className="p-3 mb-3 rounded-lg bg-destructive/10 text-destructive text-sm border border-destructive/20">{error}</div>}
+            {messageHasMore && (
+              <div className="flex justify-center py-2">
+                <Button
+                  onClick={() => {
+                    const nextOffset = Math.max(0, messageOffset - 200);
+                    loadMessages(activeSessionId, nextOffset);
+                  }}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                >
+                  ↑ Load older messages ({messageTotal.toLocaleString()} total)
+                </Button>
+              </div>
+            )}
             {messages.map((msg, idx) => <ChatBubble key={idx} role={msg.role} content={msg.content} fontSize={fontSize} images={msg.images} />)}
             {streamingContent && <ChatBubble role="assistant" content={streamingContent} isStreaming fontSize={fontSize} images={[]} />}
             <div ref={messagesEndRef} />
