@@ -631,6 +631,11 @@ function WebUIChat() {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
+  /* Approval state for dangerous-command prompts */
+  const [approvalRequest, setApprovalRequest] = useState(null);
+  /* YOLO mode indicator */
+  const [yoloEnabled, setYoloEnabled] = useState(false);
+
   /* Folder state */
   const [folderState, setFolderState] = useState(loadFolderState);
   const [draggingId, setDraggingId] = useState(null);
@@ -810,11 +815,46 @@ function WebUIChat() {
       return;
     }
 
+    /* Slash-command routing: /yolo, /clear, /new, /help */
+    if (text.startsWith("/") && !text.startsWith("//")) {
+      const cmd = text.slice(1).split(/\s+/)[0].toLowerCase();
+      const knownCommands = ["yolo", "clear", "cls", "new", "reset", "help"];
+      if (knownCommands.includes(cmd)) {
+        setInputValue("");
+        setError(null);
+        try {
+          const res = await fetch("/api/plugins/webui/command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: activeSessionId, command: text }),
+          });
+          const data = await res.json();
+          if (data.type === "yolo_toggle") {
+            setYoloEnabled(data.enabled);
+            setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
+          } else if (data.type === "clear") {
+            setMessages([]);
+          } else if (data.type === "new_session") {
+            handleNewChat();
+          } else if (data.type === "help") {
+            const helpText = data.commands.map((c) => `**${c.name}** \u2014 ${c.description}`).join("\n");
+            setMessages((prev) => [...prev, { role: "assistant", content: `## Available Commands\n\n${helpText}` }]);
+          } else if (data.type === "error") {
+            setError(data.message);
+          }
+        } catch (err) {
+          setError("Command failed: " + err.message);
+        }
+        return;
+      }
+    }
+
     setInputValue("");
     setIsLoading(true);
     setStreamingContent("");
     streamingContentRef.current = "";
     setError(null);
+    setApprovalRequest(null);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
 
     const requestId = "req_" + Math.random().toString(36).slice(2, 11);
@@ -861,6 +901,16 @@ function WebUIChat() {
               const delta = msg.content || "";
               setStreamingContent((prev) => prev + delta);
               streamingContentRef.current += delta;
+            } else if (msg.type === "approval") {
+              /* Dangerous command approval request from backend */
+              if (startedSessionId === activeSessionIdRef.current) {
+                setApprovalRequest({
+                  requestId: msg.request_id,
+                  command: msg.command,
+                  description: msg.description,
+                  choices: msg.choices || ["once", "session", "deny"],
+                });
+              }
             } else if (msg.type === "done") {
               currentSessionId = msg.session_id;
               const resultText = msg.result || "";
@@ -918,6 +968,7 @@ function WebUIChat() {
     streamingContentRef.current = "";
     setIsLoading(false);
     currentStreamSessionIdRef.current = null;
+    setApprovalRequest(null);
     abortControllerRef.current?.abort();
 
     // Tell the backend to interrupt the agent loop (fire-and-forget)
@@ -928,6 +979,20 @@ function WebUIChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ request_id: requestId }),
       }).catch(() => {});
+    }
+  }, []);
+
+  /* Send approval choice for a dangerous-command prompt */
+  const sendApprovalChoice = useCallback(async (requestId, choice) => {
+    try {
+      await fetch("/api/plugins/webui/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request_id: requestId, choice }),
+      });
+      setApprovalRequest(null);
+    } catch (err) {
+      console.error("Approval failed:", err);
     }
   }, []);
 
@@ -1250,6 +1315,42 @@ function WebUIChat() {
 
         {/* Input bar */}
         <div className="flex-shrink-0 border-t border-border p-3 md:p-4">
+          {/* Approval prompt overlay */}
+          {approvalRequest && (
+            <div className="mb-3 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10">
+              <div className="text-xs font-semibold text-amber-400 mb-1">⚠️ Dangerous Command Approval</div>
+              <div className="text-xs text-muted-foreground mb-1">{approvalRequest.description}</div>
+              <pre className="text-[11px] bg-background/60 rounded p-2 mb-2 overflow-x-auto border border-border/30" style={{ fontSize: `${fontSize - 2}px` }}>
+                <code>{approvalRequest.command}</code>
+              </pre>
+              <div className="flex flex-wrap gap-2">
+                {approvalRequest.choices.includes("once") && (
+                  <Button onClick={() => sendApprovalChoice(approvalRequest.requestId, "once")} size="sm" className="h-7 text-[11px] bg-amber-500 hover:bg-amber-600 text-white">
+                    Approve Once
+                  </Button>
+                )}
+                {approvalRequest.choices.includes("session") && (
+                  <Button onClick={() => sendApprovalChoice(approvalRequest.requestId, "session")} size="sm" variant="outline" className="h-7 text-[11px]">
+                    Approve Session
+                  </Button>
+                )}
+                {approvalRequest.choices.includes("always") && (
+                  <Button onClick={() => sendApprovalChoice(approvalRequest.requestId, "always")} size="sm" variant="outline" className="h-7 text-[11px]">
+                    Approve Always
+                  </Button>
+                )}
+                <Button onClick={() => sendApprovalChoice(approvalRequest.requestId, "deny")} size="sm" variant="outline" className="h-7 text-[11px] text-destructive hover:text-destructive hover:bg-destructive/10">
+                  Deny
+                </Button>
+              </div>
+            </div>
+          )}
+          {/* YOLO mode indicator */}
+          {yoloEnabled && (
+            <div className="mb-2 text-[10px] text-amber-400 font-medium text-center">
+              ⚡ YOLO MODE ON — Commands auto-approved
+            </div>
+          )}
           <div className="flex gap-2 items-end">
             <textarea
               ref={inputRef}

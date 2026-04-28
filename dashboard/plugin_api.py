@@ -6,7 +6,9 @@ loading conversation history from SessionDB for resumed sessions.
 
 import asyncio
 import json
+import os
 import sys
+import threading
 import traceback
 import uuid
 from pathlib import Path
@@ -20,6 +22,10 @@ router = APIRouter()
 # Track active agent instances for interrupt support.
 # Key: request_id (str), Value: AIAgent instance
 active_agents: dict = {}
+
+# Track pending dangerous-command approvals for WebUI.
+# Key: request_id (str), Value: {"event": threading.Event(), "choice": str, ...}
+_pending_approvals: dict = {}
 
 # Ensure hermes-agent repo root is importable when this file is loaded
 # via importlib from web_server.py.
@@ -224,6 +230,93 @@ async def models_endpoint():
     }
 
 
+@router.post("/command")
+async def command_endpoint(request: Request):
+    """Execute a slash command from the WebUI.
+
+    Body: {"session_id": "..."|null, "command": "yolo"|"clear"|"help"|...}
+    Returns: {"type": "yolo_toggle", "enabled": true/false, "message": "..."}
+             {"type": "clear", "message": "..."}
+             {"type": "new_session", "message": "..."}
+             {"type": "help", "commands": [...]}
+             {"type": "error", "message": "..."}
+    """
+    body = await request.json()
+    session_id = body.get("session_id") or None
+    text = (body.get("command") or "").strip()
+    if not text:
+        return {"type": "error", "message": "Command is required"}
+
+    # Parse: /yolo, /yolo on, /yolo off, /clear, /help, /new, /reset
+    parts = text.lstrip("/").split()
+    cmd = parts[0].lower() if parts else ""
+    arg = parts[1].lower() if len(parts) > 1 else ""
+
+    # Session key for session-scoped yolo
+    from hermes_state import SessionDB
+    db = SessionDB()
+    session_key = session_id
+    if session_id:
+        session_key = db.resolve_resume_session_id(session_id) or session_id
+    if not session_key:
+        session_key = "webui:no-session"
+
+    from tools.approval import (
+        enable_session_yolo,
+        disable_session_yolo,
+        is_session_yolo_enabled,
+    )
+
+    if cmd == "yolo":
+        # Determine target state
+        if arg == "on":
+            target = True
+        elif arg == "off":
+            target = False
+        else:
+            # Toggle
+            target = not (bool(os.getenv("HERMES_YOLO_MODE")) or is_session_yolo_enabled(session_key))
+
+        if target:
+            os.environ["HERMES_YOLO_MODE"] = "1"
+            enable_session_yolo(session_key)
+            return {
+                "type": "yolo_toggle",
+                "enabled": True,
+                "message": "⚡ YOLO mode ON — all dangerous commands will be auto-approved for this session.",
+            }
+        else:
+            os.environ.pop("HERMES_YOLO_MODE", None)
+            disable_session_yolo(session_key)
+            return {
+                "type": "yolo_toggle",
+                "enabled": False,
+                "message": "⚠ YOLO mode OFF — dangerous commands will require approval.",
+            }
+
+    if cmd in ("clear", "cls"):
+        return {"type": "clear", "message": "Screen cleared."}
+
+    if cmd in ("new", "reset"):
+        return {"type": "new_session", "message": "New session started."}
+
+    if cmd == "help":
+        return {
+            "type": "help",
+            "message": "Available WebUI commands:",
+            "commands": [
+                {"name": "/yolo", "description": "Toggle YOLO mode (auto-approve dangerous commands)"},
+                {"name": "/yolo on", "description": "Enable YOLO mode"},
+                {"name": "/yolo off", "description": "Disable YOLO mode"},
+                {"name": "/clear", "description": "Clear chat messages"},
+                {"name": "/new", "description": "Start a new session"},
+                {"name": "/help", "description": "Show this help"},
+            ],
+        }
+
+    return {"type": "error", "message": f"Unknown command: /{cmd}. Type /help for available commands."}
+
+
 @router.post("/chat")
 async def chat_endpoint(request: Request):
     """SSE streaming chat with session resume support.
@@ -290,6 +383,50 @@ async def chat_endpoint(request: Request):
         )
 
     def run_chat() -> None:
+        # Bind session key and approval callback in this worker thread so
+        # dangerous-command guards know which session to track and where to
+        # send approval prompts.
+        import os
+        from tools.approval import set_current_session_key, enable_session_yolo, disable_session_yolo, is_session_yolo_enabled
+        from tools.terminal_tool import set_approval_callback
+
+        session_key = resolved_session_id or ("webui:" + request_id)
+        old_session_key = os.environ.get("HERMES_SESSION_KEY")
+        old_interactive = os.environ.get("HERMES_INTERACTIVE")
+
+        os.environ["HERMES_SESSION_KEY"] = session_key
+        os.environ["HERMES_INTERACTIVE"] = "1"
+        approval_token = set_current_session_key(session_key)
+
+        def web_approval_callback(command: str, description: str, *, allow_permanent=True, timeout=300):
+            """Emit an SSE approval event and block until the user responds via /approve."""
+            req_id = "approval_" + str(uuid.uuid4())[:8]
+            evt = threading.Event()
+            _pending_approvals[req_id] = {
+                "event": evt,
+                "choice": "deny",
+                "command": command,
+                "description": description,
+            }
+            choices = ["once", "session", "always", "deny"] if allow_permanent else ["once", "session", "deny"]
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {
+                    "type": "approval",
+                    "request_id": req_id,
+                    "command": command,
+                    "description": description,
+                    "choices": choices,
+                },
+            )
+            if not evt.wait(timeout=timeout):
+                _pending_approvals.pop(req_id, None)
+                return "deny"
+            choice = _pending_approvals.pop(req_id, {}).get("choice", "deny")
+            return choice
+
+        set_approval_callback(web_approval_callback)
+
         try:
             result = agent.run_conversation(
                 message,
@@ -317,6 +454,17 @@ async def chat_endpoint(request: Request):
                 },
             )
         finally:
+            set_approval_callback(None)
+            from tools.approval import reset_current_session_key
+            reset_current_session_key(approval_token)
+            if old_session_key is not None:
+                os.environ["HERMES_SESSION_KEY"] = old_session_key
+            else:
+                os.environ.pop("HERMES_SESSION_KEY", None)
+            if old_interactive is not None:
+                os.environ["HERMES_INTERACTIVE"] = old_interactive
+            else:
+                os.environ.pop("HERMES_INTERACTIVE", None)
             active_agents.pop(request_id, None)
 
     asyncio.create_task(asyncio.to_thread(run_chat))
@@ -353,6 +501,31 @@ async def stop_endpoint(request: Request):
         agent._interrupt_requested = True
         return {"success": True}
     return {"success": False, "error": "No active chat found"}
+
+
+@router.post("/approve")
+async def approve_endpoint(request: Request):
+    """Respond to a dangerous-command approval request from the WebUI.
+
+    Body: {"request_id": "approval_...", "choice": "once"|"session"|"always"|"deny"}
+    Returns: {"success": true} or {"success": false, "error": "..."}
+    """
+    body = await request.json()
+    req_id = body.get("request_id")
+    choice = body.get("choice")
+
+    if not req_id:
+        return {"success": False, "error": "request_id is required"}
+    if choice not in ("once", "session", "always", "deny"):
+        return {"success": False, "error": f"Invalid choice: {choice}"}
+
+    pending = _pending_approvals.get(req_id)
+    if not pending:
+        return {"success": False, "error": "Approval request not found or already expired"}
+
+    pending["choice"] = choice
+    pending["event"].set()
+    return {"success": True}
 
 
 @router.post("/tts")
